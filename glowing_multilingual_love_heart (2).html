@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Glowing Multilingual Love Heart</title>
+    <!-- Google Fonts for crisp Bengali, Korean, Japanese, Cyrillic & Greek rendering -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@500;600&family=Noto+Sans+JP:wght@500&family=Noto+Sans+KR:wght@500&display=swap" rel="stylesheet">
+
+    <style>
+        /* Reset and pure pitch-black background (#000000) */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            background-color: #000000;
+            overflow: hidden;
+            font-family: Arial, 'Noto Sans Bengali', 'Noto Sans KR', 'Noto Sans JP', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* Full-screen responsive canvas */
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Minimal, unobtrusive Replay button in the bottom-right corner */
+        .replay-btn {
+            position: fixed;
+            bottom: 18px;
+            right: 18px;
+            z-index: 50;
+            background: rgba(15, 4, 4, 0.78);
+            border: 1px solid rgba(255, 45, 45, 0.3);
+            border-radius: 999px;
+            padding: 7px 15px;
+            color: #ff5c5c;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.4px;
+            cursor: pointer;
+            opacity: 0.35;
+            backdrop-filter: blur(6px);
+            transition: opacity 0.25s ease, transform 0.15s ease, border-color 0.25s ease, box-shadow 0.25s ease, color 0.25s ease;
+        }
+
+        .replay-btn:hover {
+            opacity: 1;
+            color: #ff8f8f;
+            border-color: rgba(255, 65, 65, 0.7);
+            box-shadow: 0 0 16px rgba(255, 30, 30, 0.35);
+        }
+
+        .replay-btn:active {
+            transform: scale(0.94);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Full-Screen Love Heart Canvas -->
+    <canvas id="loveHeartCanvas"></canvas>
+
+    <!-- Subtle Bottom-Right Replay Button -->
+    <button id="replayBtn" class="replay-btn" title="Restart animation from black screen">↻ Replay</button>
+
+    <script>
+        /**
+         * Symmetrical, Smooth-Edged Multilingual 'I Love You' Heart
+         * Uses classic balanced heart parametric equation:
+         *   x(t) = 16 * sin^3(t)
+         *   y(t) = 13 * cos(t) - 5 * cos(2t) - 2 * cos(3t) - cos(4t)
+         * Paired with exact Canvas path clipping (ctx.clip()) so text never overflows
+         * or creates jagged/crooked edges, keeping both left and right lobes 100% symmetrical.
+         */
+        (function () {
+            const canvas = document.getElementById('loveHeartCanvas');
+            const ctx = canvas.getContext('2d');
+            const replayBtn = document.getElementById('replayBtn');
+
+            // Exact multilingual phrases from reference
+            const PHRASES = [
+                "আমি তোমাকে ভালোবাসি",
+                "I love you",
+                "Ti amo",
+                "Kocham cie",
+                "Volim te",
+                "사랑해",
+                "Jag älskar dig",
+                "Te iubesc",
+                "Eu te amo",
+                "Ich liebe dich",
+                "Σ’ αγαπώ",
+                "Jeg elsker deg",
+                "Je t’aime",
+                "Ik hou van jou",
+                "Seni seviyorum",
+                "Я тебя люблю",
+                "Anh yêu em",
+                "愛してる",
+                "Aku cinta kamu"
+            ];
+
+            // Warm crimson & glowing red shades matching reference
+            const RED_SHADES = [
+                "#ff1e1e",
+                "#e60000",
+                "#ff3b3b",
+                "#cc0000",
+                "#ff2929",
+                "#d90404"
+            ];
+
+            const state = {
+                width: 0,
+                height: 0,
+                dpr: Math.min(window.devicePixelRatio || 1, 2),
+                cx: 0,
+                cy: 0,
+                scaleX: 0,
+                scaleY: 0,
+                heartBounds: { left: 0, right: 0, top: 0, bottom: 0 },
+                rows: [],
+                totalTokens: 0,
+                revealedTokens: 0,
+                elapsedMs: 0,
+                lastFrameTime: null,
+                isComplete: false,
+                pulsePhase: 0
+            };
+
+            // Animation timing (ms)
+            const BLACK_INTRO_MS = 450;    // Pure #000000 pitch-black start
+            const REVEAL_END_MS = 6800;    // Smooth progressive fill of glowing red rows
+
+            /**
+             * Classic parametric heart equations (wide, compact, no elongated tail)
+             */
+            function heartX(t) {
+                const s = Math.sin(t);
+                return 16 * s * s * s;
+            }
+
+            function heartY(t) {
+                return 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+            }
+
+            /**
+             * Deterministic PRNG so layout stays crisp and balanced
+             */
+            function createRng(seed) {
+                let s = seed >>> 0;
+                return function () {
+                    s = (s * 1664525 + 1013904223) >>> 0;
+                    return s / 4294967296;
+                };
+            }
+
+            /**
+             * Traces the exact smooth mathematical heart contour onto the canvas context
+             */
+            function traceHeartPath(context, cx, cy, scaleX, scaleY) {
+                const STEPS = 720;
+                // Vertical center offset: yMath ranges from +11.92 (top lobes) to -17.0 (bottom tip), midpoint = -2.54
+                const yCenterOffset = -2.54;
+
+                context.beginPath();
+                for (let i = 0; i <= STEPS; i++) {
+                    const t = (i / STEPS) * Math.PI * 2;
+                    const x = cx + heartX(t) * scaleX;
+                    const y = cy + (-heartY(t) - yCenterOffset) * scaleY;
+                    if (i === 0) {
+                        context.moveTo(x, y);
+                    } else {
+                        context.lineTo(x, y);
+                    }
+                }
+                context.closePath();
+            }
+
+            /**
+             * Computes horizontal X-intervals inside the heart at a given canvas Y
+             * so we only generate tokens inside/touching the heart interior (for smooth reveal pacing)
+             */
+            function getRowSpanAtCanvasY(cY) {
+                const { cx, cy, scaleX, scaleY } = state;
+                const yCenterOffset = -2.54;
+                const yMath = -((cY - cy) / scaleY + yCenterOffset);
+
+                if (yMath > 11.95 || yMath < -17.02) return null;
+
+                const STEPS = 1800;
+                const xRoots = [];
+                let prev = heartY(0) - yMath;
+
+                for (let i = 1; i <= STEPS; i++) {
+                    const t = (i / STEPS) * Math.PI;
+                    const curr = heartY(t) - yMath;
+                    if ((prev <= 0 && curr >= 0) || (prev >= 0 && curr <= 0)) {
+                        const diff = Math.abs(prev - curr);
+                        const frac = diff > 1e-12 ? Math.abs(prev) / diff : 0;
+                        const exactT = ((i - 1 + frac) / STEPS) * Math.PI;
+                        xRoots.push(Math.abs(heartX(exactT)) * scaleX);
+                    }
+                    prev = curr;
+                }
+
+                if (xRoots.length === 0) return null;
+                xRoots.sort((a, b) => a - b);
+                const maxHalfW = xRoots[xRoots.length - 1];
+                return {
+                    minX: cx - maxHalfW,
+                    maxX: cx + maxHalfW
+                };
+            }
+
+            /**
+             * Builds dense horizontal rows of multilingual love phrases that span
+             * across the heart bounding box and get cleanly clipped to the smooth heart curve.
+             */
+            function buildHeartTextGrid() {
+                const { width, height } = state;
+                state.cx = width / 2;
+                state.cy = height / 2;
+
+                // Balanced proportions: wide symmetrical lobes and compact pointed tip (no long tail)
+                const minDim = Math.min(width, height);
+                const targetWidth = Math.min(width * 0.86, minDim * 0.90);
+                const targetHeight = Math.min(height * 0.84, targetWidth * 0.88);
+
+                state.scaleX = targetWidth / 32.0;   // x spans [-16, +16] -> width 32
+                state.scaleY = targetHeight / 28.92; // y spans [-17, +11.92] -> height 28.92
+
+                const yCenterOffset = -2.54;
+                const topY = state.cy + (-11.92 - yCenterOffset) * state.scaleY;
+                const bottomY = state.cy + (17.0 - yCenterOffset) * state.scaleY;
+                const leftX = state.cx - 16 * state.scaleX;
+                const rightX = state.cx + 16 * state.scaleX;
+
+                state.heartBounds = {
+                    left: leftX,
+                    right: rightX,
+                    top: topY,
+                    bottom: bottomY
+                };
+
+                // Tight, crisp typography scaled to viewport
+                const baseFont = Math.max(9.5, Math.min(13.5, state.scaleX * 0.72));
+                const rowHeight = Math.round(baseFont * 1.38);
+                const wordGap = Math.max(5, baseFont * 0.55);
+
+                const rng = createRng(20261120);
+                const rows = [];
+                let totalTokens = 0;
+
+                // Start slightly above topY so the top lobes are completely filled right to the curve
+                const startY = topY + rowHeight * 0.35;
+                const endY = bottomY - rowHeight * 0.15;
+
+                let rowIndex = 0;
+                for (let y = startY; y <= endY; y += rowHeight) {
+                    const span = getRowSpanAtCanvasY(y);
+                    if (!span) continue;
+
+                    // Extend slightly past [span.minX, span.maxX] so ctx.clip() cuts cleanly right on the curve
+                    const pad = baseFont * 2.5;
+                    const rowStartX = Math.max(leftX - pad, span.minX - pad);
+                    const rowEndX = Math.min(rightX + pad, span.maxX + pad);
+
+                    // Stagger starting phase per row just like a continuous wrapped text stream
+                    let cursorX = rowStartX - ((rowIndex * 37) % 90);
+                    let phraseIdx = (rowIndex * 5) % PHRASES.length;
+                    const tokens = [];
+
+                    while (cursorX < rowEndX) {
+                        const text = PHRASES[phraseIdx % PHRASES.length];
+                        phraseIdx++;
+
+                        // Subtle size & crimson shade variation per phrase for rich visual depth
+                        const sizeJitter = (rng() - 0.5) * 1.4;
+                        const fontSize = +(baseFont + sizeJitter).toFixed(1);
+                        const weight = rng() > 0.65 ? 600 : 500;
+                        const font = `${weight} ${fontSize}px Arial, 'Noto Sans Bengali', 'Noto Sans KR', 'Noto Sans JP', sans-serif`;
+
+                        ctx.font = font;
+                        const textWidth = ctx.measureText(text).width;
+                        const color = RED_SHADES[Math.floor(rng() * RED_SHADES.length)];
+
+                        // Only keep tokens that overlap the visible heart span
+                        if (cursorX + textWidth >= span.minX - 6 && cursorX <= span.maxX + 6) {
+                            tokens.push({
+                                text,
+                                x: cursorX,
+                                y,
+                                font,
+                                color,
+                                width: textWidth
+                            });
+                            totalTokens++;
+                        }
+
+                        cursorX += textWidth + wordGap;
+                    }
+
+                    if (tokens.length > 0) {
+                        rows.push({ y, tokens });
+                    }
+                    rowIndex++;
+                }
+
+                state.rows = rows;
+                state.totalTokens = totalTokens;
+            }
+
+            /**
+             * Handles responsive viewport resizing
+             */
+            function handleResize() {
+                state.width = window.innerWidth;
+                state.height = window.innerHeight;
+                state.dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+                canvas.width = state.width * state.dpr;
+                canvas.height = state.height * state.dpr;
+                ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+
+                buildHeartTextGrid();
+
+                if (state.isComplete) {
+                    state.revealedTokens = state.totalTokens;
+                }
+            }
+
+            /**
+             * Restarts animation from pure black screen
+             */
+            function replayAnimation() {
+                state.elapsedMs = 0;
+                state.revealedTokens = 0;
+                state.isComplete = false;
+                state.lastFrameTime = null;
+                state.pulsePhase = 0;
+                buildHeartTextGrid();
+            }
+
+            /**
+             * Main animation loop
+             */
+            function animate(now) {
+                if (state.lastFrameTime === null) {
+                    state.lastFrameTime = now;
+                }
+
+                const dt = now - state.lastFrameTime;
+                state.lastFrameTime = now;
+
+                if (!state.isComplete) {
+                    state.elapsedMs += dt;
+
+                    if (state.elapsedMs <= BLACK_INTRO_MS) {
+                        state.revealedTokens = 0;
+                    } else if (state.elapsedMs < REVEAL_END_MS) {
+                        const t = (state.elapsedMs - BLACK_INTRO_MS) / (REVEAL_END_MS - BLACK_INTRO_MS);
+                        // Smooth ease-in-out curve for natural row-by-row progression
+                        const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+                        state.revealedTokens = Math.floor(eased * state.totalTokens);
+                    } else {
+                        state.revealedTokens = state.totalTokens;
+                        state.isComplete = true;
+                    }
+                } else {
+                    // Subtle ambient heartbeat glow once fully formed
+                    state.pulsePhase += dt * 0.0028;
+                }
+
+                render();
+                requestAnimationFrame(animate);
+            }
+
+            /**
+             * Renders pure pitch-black background and strictly clipped glowing red heart text
+             */
+            function render() {
+                const { width, height, cx, cy, scaleX, scaleY, rows, revealedTokens, isComplete, pulsePhase } = state;
+
+                // 1. Pure pitch-black background (#000000)
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(0, 0, width, height);
+
+                if (revealedTokens <= 0) return;
+
+                // 2. Save context and clip strictly to the smooth symmetrical heart path
+                ctx.save();
+                traceHeartPath(ctx, cx, cy, scaleX, scaleY);
+                ctx.clip();
+
+                ctx.textBaseline = 'middle';
+                const pulse = isComplete ? (Math.sin(pulsePhase) * 0.5 + 0.5) : 0;
+                const baseGlow = 6 + pulse * 4.5;
+
+                let drawnCount = 0;
+
+                for (let r = 0; r < rows.length; r++) {
+                    const rowTokens = rows[r].tokens;
+                    for (let i = 0; i < rowTokens.length; i++) {
+                        if (drawnCount >= revealedTokens) break;
+
+                        const token = rowTokens[i];
+                        const isLeadingEdge = !isComplete && (drawnCount >= revealedTokens - 4);
+
+                        ctx.font = token.font;
+
+                        if (isLeadingEdge) {
+                            ctx.fillStyle = '#ff6b6b';
+                            ctx.shadowColor = 'rgba(255, 60, 60, 0.95)';
+                            ctx.shadowBlur = 12;
+                        } else {
+                            ctx.fillStyle = token.color;
+                            ctx.shadowColor = 'rgba(255, 20, 20, 0.65)';
+                            ctx.shadowBlur = baseGlow;
+                        }
+
+                        ctx.fillText(token.text, token.x, token.y);
+                        drawnCount++;
+                    }
+                    if (drawnCount >= revealedTokens) break;
+                }
+
+                // 3. Restore unclipped state
+                ctx.restore();
+            }
+
+            replayBtn.addEventListener('click', replayAnimation);
+            window.addEventListener('resize', handleResize);
+
+            window.onload = function () {
+                handleResize();
+                requestAnimationFrame(animate);
+            };
+        })();
+    </script>
+</body>
+</html>
